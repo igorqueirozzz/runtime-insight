@@ -1,3 +1,10 @@
+## 1.0.1
+
+* Fixed package description length for pub.dev scoring.
+* Fixed repository URL in pubspec.yaml.
+* Added minimize/expand mode to RuntimeInsightOverlay widget.
+* Fixed example app structure and l10n setup.
+
 ## 1.0.0
 
 * Stable API for device classification and monitoring.
