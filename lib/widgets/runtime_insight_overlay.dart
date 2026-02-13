@@ -63,6 +63,15 @@ class RuntimeInsightOverlay extends StatefulWidget {
   /// Background colour override for the overlay panel.
   final Color? backgroundColor;
 
+  /// Whether to show the minimize button in the header.
+  final bool showMinimizeButton;
+
+  /// Diameter of the minimized circle bubble.
+  final double minimizedSize;
+
+  /// Whether the overlay starts in minimized mode.
+  final bool initiallyMinimized;
+
   const RuntimeInsightOverlay({
     super.key,
     this.stream,
@@ -81,6 +90,9 @@ class RuntimeInsightOverlay extends StatefulWidget {
     this.onClose,
     this.margin = const EdgeInsets.all(12),
     this.backgroundColor,
+    this.showMinimizeButton = true,
+    this.minimizedSize = 56,
+    this.initiallyMinimized = false,
   });
 
   @override
@@ -93,6 +105,7 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
   StreamSubscription<AppResourceSnapshot>? _subscription;
   bool _ownsMonitoring = false;
   bool _paused = false;
+  bool _minimized = false;
   Offset _dragOffset = Offset.zero;
   double _opacity = 0.95;
   Timer? _persistTimer;
@@ -100,6 +113,7 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
   @override
   void initState() {
     super.initState();
+    _minimized = widget.initiallyMinimized;
     _restorePrefs();
     _start();
   }
@@ -120,6 +134,7 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
     final dx = prefs.getDouble('${key}_dx');
     final dy = prefs.getDouble('${key}_dy');
     final opacity = prefs.getDouble('${key}_opacity');
+    final minimized = prefs.getBool('${key}_minimized');
     if (!mounted) return;
     setState(() {
       if (dx != null && dy != null) {
@@ -127,6 +142,9 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
       }
       if (opacity != null) {
         _opacity = opacity.clamp(0.4, 1.0);
+      }
+      if (minimized != null) {
+        _minimized = minimized;
       }
     });
   }
@@ -144,7 +162,15 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
       if (widget.persistOpacity) {
         await prefs.setDouble('${key}_opacity', _opacity);
       }
+      await prefs.setBool('${key}_minimized', _minimized);
     });
+  }
+
+  void _toggleMinimized() {
+    setState(() {
+      _minimized = !_minimized;
+    });
+    _schedulePersist();
   }
 
   Future<void> _start() async {
@@ -226,10 +252,87 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
   Widget build(BuildContext context) {
     final strings = widget.strings ?? RuntimeInsightOverlayStrings.english();
     final snapshot = _history.isEmpty ? null : _history.last;
+    final theme = Theme.of(context);
+
+    if (_minimized) {
+      return _buildMinimized(context, snapshot, strings, theme);
+    }
+    return _buildExpanded(context, snapshot, strings, theme);
+  }
+
+  Widget _buildMinimized(
+    BuildContext context,
+    AppResourceSnapshot? snapshot,
+    RuntimeInsightOverlayStrings strings,
+    ThemeData theme,
+  ) {
+    final cpuRaw = snapshot?.cpuPercent ?? snapshot?.cpuPercentAvg ?? 0;
+    final cpuInt = cpuRaw.round().clamp(0, 100);
+    final fraction = cpuInt / 100;
+
+    final bgColor =
+        widget.backgroundColor ??
+        theme.colorScheme.surface.withValues(alpha: _opacity);
+
+    final bubble = GestureDetector(
+      onTap: _toggleMinimized,
+      child: Container(
+        margin: widget.margin,
+        width: widget.minimizedSize,
+        height: widget.minimizedSize,
+        child: Material(
+          elevation: 6,
+          shape: const CircleBorder(),
+          color: bgColor,
+          child: CustomPaint(
+            painter: _CpuArcPainter(
+              fraction: fraction,
+              arcColor: _cpuArcColor(fraction),
+              trackColor: theme.colorScheme.outlineVariant.withValues(
+                alpha: 0.3,
+              ),
+              strokeWidth: 3.5,
+            ),
+            child: Center(
+              child: Text(
+                '$cpuInt%',
+                style: TextStyle(
+                  fontSize: widget.minimizedSize * 0.26,
+                  fontWeight: FontWeight.w700,
+                  color: theme.colorScheme.onSurface,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    if (!widget.allowDrag) return bubble;
+
+    return Transform.translate(
+      offset: _dragOffset,
+      child: GestureDetector(
+        onPanUpdate: (details) {
+          setState(() {
+            _dragOffset += details.delta;
+          });
+          _schedulePersist();
+        },
+        child: bubble,
+      ),
+    );
+  }
+
+  Widget _buildExpanded(
+    BuildContext context,
+    AppResourceSnapshot? snapshot,
+    RuntimeInsightOverlayStrings strings,
+    ThemeData theme,
+  ) {
     final cpuValue = _formatDouble(
       snapshot?.cpuPercent ?? snapshot?.cpuPercentAvg,
     );
-    final theme = Theme.of(context);
     final bgColor =
         widget.backgroundColor ??
         theme.colorScheme.surface.withValues(alpha: _opacity);
@@ -323,6 +426,12 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
     );
   }
 
+  static Color _cpuArcColor(double fraction) {
+    if (fraction < 0.5) return Colors.green;
+    if (fraction < 0.8) return Colors.orange;
+    return Colors.red;
+  }
+
   Widget _header(ThemeData theme, RuntimeInsightOverlayStrings strings) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -341,6 +450,12 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
               icon: Icon(_paused ? Icons.play_arrow : Icons.pause, size: 18),
               onPressed: _togglePause,
               tooltip: _paused ? strings.resume : strings.pause,
+            ),
+          if (widget.showMinimizeButton)
+            IconButton(
+              icon: const Icon(Icons.remove_circle_outline, size: 18),
+              onPressed: _toggleMinimized,
+              tooltip: strings.minimize,
             ),
           if (widget.showCloseButton)
             IconButton(
@@ -566,6 +681,60 @@ class _LineChartPainter extends CustomPainter {
         oldDelegate.colors != colors ||
         oldDelegate.gridLines != gridLines ||
         oldDelegate.gridColor != gridColor;
+  }
+}
+
+class _CpuArcPainter extends CustomPainter {
+  final double fraction;
+  final Color arcColor;
+  final Color trackColor;
+  final double strokeWidth;
+
+  _CpuArcPainter({
+    required this.fraction,
+    required this.arcColor,
+    required this.trackColor,
+    required this.strokeWidth,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = (min(size.width, size.height) / 2) - strokeWidth;
+    const startAngle = -pi / 2;
+    final sweepAngle = 2 * pi * fraction.clamp(0.0, 1.0);
+
+    // Track (background circle).
+    final trackPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..color = trackColor
+      ..strokeCap = StrokeCap.round;
+    canvas.drawCircle(center, radius, trackPaint);
+
+    // Arc (CPU usage).
+    if (sweepAngle > 0) {
+      final arcPaint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = strokeWidth
+        ..color = arcColor
+        ..strokeCap = StrokeCap.round;
+      canvas.drawArc(
+        Rect.fromCircle(center: center, radius: radius),
+        startAngle,
+        sweepAngle,
+        false,
+        arcPaint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _CpuArcPainter oldDelegate) {
+    return oldDelegate.fraction != fraction ||
+        oldDelegate.arcColor != arcColor ||
+        oldDelegate.trackColor != trackColor ||
+        oldDelegate.strokeWidth != strokeWidth;
   }
 }
 

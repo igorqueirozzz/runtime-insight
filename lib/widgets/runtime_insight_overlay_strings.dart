@@ -22,6 +22,8 @@ class RuntimeInsightOverlayStrings {
   final String pause;
   final String resume;
   final String close;
+  final String minimize;
+  final String expand;
 
   const RuntimeInsightOverlayStrings({
     required this.title,
@@ -43,6 +45,8 @@ class RuntimeInsightOverlayStrings {
     required this.pause,
     required this.resume,
     required this.close,
+    required this.minimize,
+    required this.expand,
   });
 
   factory RuntimeInsightOverlayStrings.english() {
@@ -66,6 +70,8 @@ class RuntimeInsightOverlayStrings {
       pause: 'Pause',
       resume: 'Resume',
       close: 'Close',
+      minimize: 'Minimize',
+      expand: 'Expand',
     );
   }
 }
