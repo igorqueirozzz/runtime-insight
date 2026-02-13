@@ -45,5 +45,7 @@
   "legendTx": "TX",
   "pause": "Pause",
   "resume": "Resume",
-  "close": "Close"
+  "close": "Close",
+  "minimize": "Minimize",
+  "expand": "Expand"
 }
