@@ -1,3 +1,8 @@
+## 1.0.2
+
+* Lowered minimum SDK to Dart 3.0.0 / Flutter 3.7.0 for wider compatibility.
+* Lowered shared_preferences dependency to ^2.2.0.
+
 ## 1.0.1
 
 * Fixed package description length for pub.dev scoring.

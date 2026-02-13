@@ -2,7 +2,7 @@ import 'package:runtime_insight/classifier/score_rules.dart';
 import '../device/device_specs.dart';
 import 'device_tier.dart';
 
-final class DeviceStaticClassifier {
+class DeviceStaticClassifier {
   static DeviceTier classify(DeviceSpecs specs) {
     if (isLowRam(specs.ramMb ?? 0)) {
       return DeviceTier.low;

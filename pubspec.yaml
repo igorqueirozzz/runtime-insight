@@ -1,19 +1,19 @@
 name: runtime_insight
 description: "Runtime device classification (low/mid/high) and app resource monitoring for Flutter. Streams CPU, RAM, FPS, network and disk metrics."
-version: 1.0.1
+version: 1.0.2
 repository: https://github.com/igorqueirozzz/runtime-insight
 funding:
   - https://www.paypal.com/donate/?hosted_button_id=T98W8VTCJQVA8
 
 environment:
-  sdk: ^3.10.8
-  flutter: '>=3.3.0'
+  sdk: '>=3.0.0 <4.0.0'
+  flutter: '>=3.7.0'
 
 dependencies:
   flutter:
     sdk: flutter
   plugin_platform_interface: ^2.0.2
-  shared_preferences: ^2.5.4
+  shared_preferences: ^2.2.0
 
 dev_dependencies:
   flutter_test:

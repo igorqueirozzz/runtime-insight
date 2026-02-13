@@ -272,7 +272,7 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
 
     final bgColor =
         widget.backgroundColor ??
-        theme.colorScheme.surface.withValues(alpha: _opacity);
+        theme.colorScheme.surface.withOpacity(_opacity);
 
     final bubble = GestureDetector(
       onTap: _toggleMinimized,
@@ -288,9 +288,7 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
             painter: _CpuArcPainter(
               fraction: fraction,
               arcColor: _cpuArcColor(fraction),
-              trackColor: theme.colorScheme.outlineVariant.withValues(
-                alpha: 0.3,
-              ),
+              trackColor: theme.colorScheme.outlineVariant.withOpacity(0.3),
               strokeWidth: 3.5,
             ),
             child: Center(
@@ -335,7 +333,7 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
     );
     final bgColor =
         widget.backgroundColor ??
-        theme.colorScheme.surface.withValues(alpha: _opacity);
+        theme.colorScheme.surface.withOpacity(_opacity);
     final content = Material(
       elevation: 6,
       borderRadius: BorderRadius.circular(12),
@@ -562,7 +560,7 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
       margin: const EdgeInsets.only(right: 8),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.06),
+        color: Colors.black.withOpacity(0.06),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Text('$label: $value'),
