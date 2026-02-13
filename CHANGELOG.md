@@ -1,3 +1,12 @@
+## 1.0.4
+
+* Controller now supports all overlay configuration properties (width, height,
+  showPauseButton, showCloseButton, strings, backgroundColor, margin, etc.).
+* Controller exposes `snapshotStream`, `latestSnapshot` and `history` for
+  reading monitoring data from anywhere.
+* Controller supports `monitoringConfig` override — changing it restarts
+  monitoring automatically.
+
 ## 1.0.3
 
 * Added `RuntimeInsightOverlayController` for static/global overlay control.

@@ -93,21 +93,59 @@ Stack(
 Controle o overlay de qualquer lugar do app — sem precisar de referência ao widget:
 
 ```dart
-// Esconder / mostrar
-RuntimeInsightOverlayController.instance.hide();
-RuntimeInsightOverlayController.instance.show();
+final ctrl = RuntimeInsightOverlayController.instance;
+
+// Visibilidade
+ctrl.hide();
+ctrl.show();
 
 // Minimizar / expandir
-RuntimeInsightOverlayController.instance.minimize();
-RuntimeInsightOverlayController.instance.expand();
+ctrl.minimize();
+ctrl.expand();
 
 // Pausar / resumir fluxo de dados
-RuntimeInsightOverlayController.instance.pause();
-RuntimeInsightOverlayController.instance.resume();
+ctrl.pause();
+ctrl.resume();
 
 // Alterar opacidade
-RuntimeInsightOverlayController.instance.opacity = 0.6;
+ctrl.opacity = 0.6;
 ```
+
+#### Sobrescrita de configuração
+
+Qualquer propriedade definida no controller sobrescreve o valor do construtor do widget:
+
+```dart
+ctrl.width = 320;
+ctrl.height = 400;
+ctrl.showPauseButton = false;
+ctrl.showOpacitySlider = false;
+ctrl.strings = RuntimeInsightOverlayStrings.english();
+ctrl.backgroundColor = Colors.black87;
+ctrl.monitoringConfig = const AppResourceMonitoringConfig(
+  interval: Duration(milliseconds: 500),
+);
+```
+
+#### Acesso ao stream
+
+Leia dados de monitoramento de qualquer lugar sem tocar no widget:
+
+```dart
+// Ouvir snapshots em tempo real
+ctrl.snapshotStream.listen((snapshot) {
+  print('CPU: ${snapshot.cpuPercent}%');
+  print('RAM: ${snapshot.memoryMb} MB');
+});
+
+// Ler o último snapshot
+final ultimo = ctrl.latestSnapshot;
+
+// Acessar todo o histórico
+final historico = ctrl.history;
+```
+
+#### Controller dedicado
 
 Você também pode passar um controller dedicado a um overlay específico:
 

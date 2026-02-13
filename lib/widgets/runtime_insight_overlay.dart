@@ -16,12 +16,17 @@ import '../runtime_insight.dart';
 /// [RuntimeInsight.startMonitoring] and manages its lifecycle.
 ///
 /// Use [controller] (or the static [RuntimeInsightOverlayController.instance])
-/// to change visibility, minimized state, pause, and opacity from anywhere:
+/// to change any configuration or read streams from anywhere:
 ///
 /// ```dart
-/// RuntimeInsightOverlayController.instance.hide();
-/// RuntimeInsightOverlayController.instance.minimize();
-/// RuntimeInsightOverlayController.instance.opacity = 0.6;
+/// final ctrl = RuntimeInsightOverlayController.instance;
+/// ctrl.hide();
+/// ctrl.minimize();
+/// ctrl.opacity = 0.6;
+/// ctrl.width = 320;
+/// ctrl.showPauseButton = false;
+///
+/// ctrl.snapshotStream.listen((s) => print(s.cpuPercent));
 /// ```
 class RuntimeInsightOverlay extends StatefulWidget {
   /// An external monitoring stream. If `null`, the overlay creates its own.
@@ -81,7 +86,7 @@ class RuntimeInsightOverlay extends StatefulWidget {
   /// Whether the overlay starts in minimized mode.
   final bool initiallyMinimized;
 
-  /// Optional controller for programmatic state changes.
+  /// Optional controller for programmatic state and configuration changes.
   ///
   /// If `null`, the global [RuntimeInsightOverlayController.instance] is used.
   final RuntimeInsightOverlayController? controller;
@@ -115,7 +120,6 @@ class RuntimeInsightOverlay extends StatefulWidget {
 }
 
 class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
-  final List<AppResourceSnapshot> _history = [];
   Stream<AppResourceSnapshot>? _stream;
   StreamSubscription<AppResourceSnapshot>? _subscription;
   bool _ownsMonitoring = false;
@@ -125,11 +129,36 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
   RuntimeInsightOverlayController get _ctrl =>
       widget.controller ?? RuntimeInsightOverlayController.instance;
 
+  // ---------------------------------------------------------------------------
+  // Resolved config helpers — controller value ?? widget value
+  // ---------------------------------------------------------------------------
+
+  double get _width => _ctrl.width ?? widget.width;
+  double get _height => _ctrl.height ?? widget.height;
+  int get _maxPoints => _ctrl.maxPoints ?? widget.maxPoints;
+  double get _minimizedSize => _ctrl.minimizedSize ?? widget.minimizedSize;
+  EdgeInsets get _margin => _ctrl.margin ?? widget.margin;
+  Color? get _backgroundColor => _ctrl.backgroundColor ?? widget.backgroundColor;
+  bool get _showCloseButton => _ctrl.showCloseButton ?? widget.showCloseButton;
+  bool get _showPauseButton => _ctrl.showPauseButton ?? widget.showPauseButton;
+  bool get _showOpacitySlider =>
+      _ctrl.showOpacitySlider ?? widget.showOpacitySlider;
+  bool get _showMinimizeButton =>
+      _ctrl.showMinimizeButton ?? widget.showMinimizeButton;
+  bool get _allowDrag => _ctrl.allowDrag ?? widget.allowDrag;
+  RuntimeInsightOverlayStrings get _strings =>
+      _ctrl.strings ?? widget.strings ?? RuntimeInsightOverlayStrings.english();
+  VoidCallback? get _onClose => _ctrl.onClose ?? widget.onClose;
+  AppResourceMonitoringConfig? get _monitoringConfig =>
+      _ctrl.monitoringConfig ?? widget.config;
+
+  // ---------------------------------------------------------------------------
+  // Lifecycle
+  // ---------------------------------------------------------------------------
+
   @override
   void initState() {
     super.initState();
-    // Sync initial widget values into the controller (only when they differ
-    // from the defaults so that pre-configured controllers are respected).
     if (widget.initiallyMinimized) {
       _ctrl.minimized = true;
     }
@@ -142,7 +171,6 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
   void didUpdateWidget(RuntimeInsightOverlay oldWidget) {
     super.didUpdateWidget(oldWidget);
 
-    // Switch controller listeners when the controller reference changes.
     final oldCtrl =
         oldWidget.controller ?? RuntimeInsightOverlayController.instance;
     if (oldCtrl != _ctrl) {
@@ -156,6 +184,8 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
     }
   }
 
+  AppResourceMonitoringConfig? _lastAppliedConfig;
+
   /// Called whenever the [RuntimeInsightOverlayController] notifies.
   void _onControllerChanged() {
     if (!mounted) return;
@@ -167,9 +197,20 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
       _resumeInternal();
     }
 
+    // If the monitoring config was changed via the controller, restart.
+    final newConfig = _monitoringConfig;
+    if (newConfig != _lastAppliedConfig && _ownsMonitoring) {
+      _lastAppliedConfig = newConfig;
+      _restart();
+    }
+
     setState(() {}); // Rebuild with new controller values.
     _schedulePersist();
   }
+
+  // ---------------------------------------------------------------------------
+  // Preferences persistence
+  // ---------------------------------------------------------------------------
 
   Future<void> _restorePrefs() async {
     final key = widget.persistenceKey;
@@ -210,17 +251,17 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
     });
   }
 
-  void _toggleMinimized() {
-    _ctrl.toggleMinimized();
-    // The listener triggers setState + persist.
-  }
+  // ---------------------------------------------------------------------------
+  // Monitoring start / stop
+  // ---------------------------------------------------------------------------
 
   Future<void> _start() async {
     if (widget.stream != null) {
       _stream = widget.stream;
       _ownsMonitoring = false;
     } else {
-      _stream = RuntimeInsight.startMonitoring(config: widget.config);
+      _lastAppliedConfig = _monitoringConfig;
+      _stream = RuntimeInsight.startMonitoring(config: _monitoringConfig);
       _ownsMonitoring = true;
     }
     _subscribe();
@@ -229,12 +270,8 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
   void _subscribe() {
     _subscription = _stream?.listen((snapshot) {
       if (_ctrl.paused) return;
-      setState(() {
-        _history.add(snapshot);
-        if (_history.length > widget.maxPoints) {
-          _history.removeAt(0);
-        }
-      });
+      _ctrl.addSnapshot(snapshot, maxPoints: _maxPoints);
+      setState(() {});
     });
   }
 
@@ -243,7 +280,7 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
     if (_ownsMonitoring) {
       await RuntimeInsight.stopMonitoring();
     }
-    _history.clear();
+    _ctrl.clearHistory();
     await _start();
   }
 
@@ -259,14 +296,13 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
   }
 
   // ---------------------------------------------------------------------------
-  // Pause helpers — keep engine in sync without going through the controller
-  // listener to avoid recursion.
+  // Pause helpers
   // ---------------------------------------------------------------------------
+
   bool _isPausedInternally = false;
 
   Future<void> _togglePause() async {
     _ctrl.togglePause();
-    // The listener takes care of engine sync + rebuild.
   }
 
   Future<void> _pauseInternal() async {
@@ -290,25 +326,31 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
     }
   }
 
+  void _toggleMinimized() {
+    _ctrl.toggleMinimized();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Build
+  // ---------------------------------------------------------------------------
+
   @override
   Widget build(BuildContext context) {
-    // If the controller says the overlay is hidden, render nothing.
     if (!_ctrl.visible) return const SizedBox.shrink();
 
-    final strings = widget.strings ?? RuntimeInsightOverlayStrings.english();
-    final snapshot = _history.isEmpty ? null : _history.last;
+    final history = _ctrl.history;
+    final snapshot = _ctrl.latestSnapshot;
     final theme = Theme.of(context);
 
     if (_ctrl.minimized) {
-      return _buildMinimized(context, snapshot, strings, theme);
+      return _buildMinimized(context, snapshot, theme);
     }
-    return _buildExpanded(context, snapshot, strings, theme);
+    return _buildExpanded(context, snapshot, history, theme);
   }
 
   Widget _buildMinimized(
     BuildContext context,
     AppResourceSnapshot? snapshot,
-    RuntimeInsightOverlayStrings strings,
     ThemeData theme,
   ) {
     final cpuRaw = snapshot?.cpuPercent ?? snapshot?.cpuPercentAvg ?? 0;
@@ -316,15 +358,14 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
     final fraction = cpuInt / 100;
 
     final bgColor =
-        widget.backgroundColor ??
-        theme.colorScheme.surface.withOpacity(_ctrl.opacity);
+        _backgroundColor ?? theme.colorScheme.surface.withOpacity(_ctrl.opacity);
 
     final bubble = GestureDetector(
       onTap: _toggleMinimized,
       child: Container(
-        margin: widget.margin,
-        width: widget.minimizedSize,
-        height: widget.minimizedSize,
+        margin: _margin,
+        width: _minimizedSize,
+        height: _minimizedSize,
         child: Material(
           elevation: 6,
           shape: const CircleBorder(),
@@ -340,7 +381,7 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
               child: Text(
                 '$cpuInt%',
                 style: TextStyle(
-                  fontSize: widget.minimizedSize * 0.26,
+                  fontSize: _minimizedSize * 0.26,
                   fontWeight: FontWeight.w700,
                   color: theme.colorScheme.onSurface,
                 ),
@@ -351,7 +392,7 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
       ),
     );
 
-    if (!widget.allowDrag) return bubble;
+    if (!_allowDrag) return bubble;
 
     return Transform.translate(
       offset: _dragOffset,
@@ -370,15 +411,16 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
   Widget _buildExpanded(
     BuildContext context,
     AppResourceSnapshot? snapshot,
-    RuntimeInsightOverlayStrings strings,
+    List<AppResourceSnapshot> history,
     ThemeData theme,
   ) {
     final cpuValue = _formatDouble(
       snapshot?.cpuPercent ?? snapshot?.cpuPercentAvg,
     );
     final bgColor =
-        widget.backgroundColor ??
-        theme.colorScheme.surface.withOpacity(_ctrl.opacity);
+        _backgroundColor ?? theme.colorScheme.surface.withOpacity(_ctrl.opacity);
+    final strings = _strings;
+
     final content = Material(
       elevation: 6,
       borderRadius: BorderRadius.circular(12),
@@ -388,7 +430,7 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
         child: Column(
           children: [
             _header(theme, strings),
-            if (widget.showOpacitySlider) _opacityControl(),
+            if (_showOpacitySlider) _opacityControl(),
             const Divider(height: 1),
             TabBar(
               tabs: [
@@ -406,14 +448,14 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
                     title: strings.cpuTitle,
                     value: cpuValue,
                     avgValue: _formatDouble(snapshot?.cpuPercentAvg),
-                    series: [_series(_history, (s) => s.cpuPercent)],
+                    series: [_series(history, (s) => s.cpuPercent)],
                     colors: [Colors.orange],
                   ),
                   _metricTab(
                     title: strings.ramTitle,
                     value: _formatDouble(snapshot?.memoryMb),
                     avgValue: _formatDouble(snapshot?.memoryMbAvg),
-                    series: [_series(_history, (s) => s.memoryMb)],
+                    series: [_series(history, (s) => s.memoryMb)],
                     colors: [Colors.blue],
                   ),
                   _metricTab(
@@ -421,8 +463,8 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
                     value: _formatRate(snapshot?.diskReadBytesPerSec),
                     secondaryValue: _formatRate(snapshot?.diskWriteBytesPerSec),
                     series: [
-                      _series(_history, (s) => s.diskReadBytesPerSec),
-                      _series(_history, (s) => s.diskWriteBytesPerSec),
+                      _series(history, (s) => s.diskReadBytesPerSec),
+                      _series(history, (s) => s.diskWriteBytesPerSec),
                     ],
                     colors: [Colors.green, Colors.redAccent],
                     legend: [strings.legendRead, strings.legendWrite],
@@ -432,8 +474,8 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
                     value: _formatRate(snapshot?.networkRxBytesPerSec),
                     secondaryValue: _formatRate(snapshot?.networkTxBytesPerSec),
                     series: [
-                      _series(_history, (s) => s.networkRxBytesPerSec),
-                      _series(_history, (s) => s.networkTxBytesPerSec),
+                      _series(history, (s) => s.networkRxBytesPerSec),
+                      _series(history, (s) => s.networkTxBytesPerSec),
                     ],
                     colors: [Colors.teal, Colors.purple],
                     legend: [strings.legendRx, strings.legendTx],
@@ -447,13 +489,13 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
     );
 
     final overlay = Container(
-      margin: widget.margin,
-      width: widget.width,
-      height: widget.height,
+      margin: _margin,
+      width: _width,
+      height: _height,
       child: content,
     );
 
-    if (!widget.allowDrag) return overlay;
+    if (!_allowDrag) return overlay;
 
     return Transform.translate(
       offset: _dragOffset,
@@ -468,6 +510,10 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
       ),
     );
   }
+
+  // ---------------------------------------------------------------------------
+  // Sub-widgets
+  // ---------------------------------------------------------------------------
 
   static Color _cpuArcColor(double fraction) {
     if (fraction < 0.5) return Colors.green;
@@ -492,7 +538,7 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
               ),
             ),
           ),
-          if (widget.showPauseButton)
+          if (_showPauseButton)
             IconButton(
               icon: Icon(
                 _ctrl.paused ? Icons.play_arrow : Icons.pause,
@@ -502,7 +548,7 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
               onPressed: _togglePause,
               tooltip: _ctrl.paused ? strings.resume : strings.pause,
             ),
-          if (widget.showMinimizeButton)
+          if (_showMinimizeButton)
             IconButton(
               icon: Icon(
                 Icons.remove_circle_outline,
@@ -512,10 +558,10 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
               onPressed: _toggleMinimized,
               tooltip: strings.minimize,
             ),
-          if (widget.showCloseButton)
+          if (_showCloseButton)
             IconButton(
               icon: Icon(Icons.close, size: 18, color: iconColor),
-              onPressed: widget.onClose,
+              onPressed: _onClose,
               tooltip: strings.close,
             ),
         ],
@@ -542,7 +588,6 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
                 max: 1.0,
                 onChanged: (value) {
                   _ctrl.opacity = value;
-                  // The listener triggers setState + persist.
                 },
               ),
             ),
@@ -561,7 +606,7 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
     required List<Color> colors,
     List<String>? legend,
   }) {
-    final strings = widget.strings ?? RuntimeInsightOverlayStrings.english();
+    final strings = _strings;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Column(
@@ -623,6 +668,10 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
     );
   }
 }
+
+// =============================================================================
+// Charts
+// =============================================================================
 
 /// A lightweight line chart widget used internally by [RuntimeInsightOverlay].
 ///
@@ -713,7 +762,8 @@ class _LineChartPainter extends CustomPainter {
       ..color = gridColor;
     for (var i = 1; i <= gridLines; i++) {
       final dy = rect.top + (rect.height * i / (gridLines + 1));
-      canvas.drawLine(Offset(rect.left, dy), Offset(rect.right, dy), gridPaint);
+      canvas.drawLine(
+          Offset(rect.left, dy), Offset(rect.right, dy), gridPaint);
     }
   }
 
@@ -791,6 +841,10 @@ class _CpuArcPainter extends CustomPainter {
         oldDelegate.strokeWidth != strokeWidth;
   }
 }
+
+// =============================================================================
+// Helpers
+// =============================================================================
 
 List<double?> _series(
   List<AppResourceSnapshot> history,
