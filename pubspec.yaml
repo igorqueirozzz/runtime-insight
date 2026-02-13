@@ -1,0 +1,30 @@
+name: runtime_insight
+description: "Runtime device insights, tier classification and app resource monitoring for Flutter. Collects hardware specs, classifies devices into low/mid/high tiers, and streams CPU, RAM, FPS, network and disk metrics."
+version: 1.0.0
+repository: https://github.com/igorqueiroz/runtime_insight
+funding:
+  - https://www.paypal.com/donate/?hosted_button_id=T98W8VTCJQVA8
+
+environment:
+  sdk: ^3.10.8
+  flutter: '>=3.3.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  plugin_platform_interface: ^2.0.2
+  shared_preferences: ^2.5.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: dev.queiroz.runtime_insight
+        pluginClass: DeviceSpecsPlugin
+      ios:
+        pluginClass: RuntimeInsightPlugin
