@@ -3,7 +3,7 @@
 [![pub package](https://img.shields.io/pub/v/runtime_insight.svg)](https://pub.dev/packages/runtime_insight)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-[Leia em Português](docs/README.pt-BR.md)
+[Leia em Português](doc/README.pt-BR.md)
 
 Flutter plugin that classifies devices into tiers (low/mid/high) based
 on runtime hardware characteristics and provides continuous app resource monitoring.
@@ -174,5 +174,5 @@ If this plugin helped you, consider supporting the project:
 
 Key: `620b6ef6-574f-447b-aec7-6fac5f3a6be5`
 
-<img src="docs/pix_qrcode.jpg" alt="PIX QR Code" width="200"/>
+<img src="doc/pix_qrcode.jpg" alt="PIX QR Code" width="200"/>
 
