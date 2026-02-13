@@ -85,6 +85,38 @@ Stack(
 )
 ```
 
+### Controller (static access)
+
+Control the overlay from anywhere — no widget reference needed:
+
+```dart
+// Hide / show
+RuntimeInsightOverlayController.instance.hide();
+RuntimeInsightOverlayController.instance.show();
+
+// Minimize / expand
+RuntimeInsightOverlayController.instance.minimize();
+RuntimeInsightOverlayController.instance.expand();
+
+// Pause / resume data feed
+RuntimeInsightOverlayController.instance.pause();
+RuntimeInsightOverlayController.instance.resume();
+
+// Change opacity
+RuntimeInsightOverlayController.instance.opacity = 0.6;
+```
+
+You can also pass a dedicated controller to a specific overlay:
+
+```dart
+final myController = RuntimeInsightOverlayController(minimized: true);
+
+RuntimeInsightOverlay(
+  controller: myController,
+  persistenceKey: 'my_overlay',
+)
+```
+
 ### Migration from 0.x
 
 - `maxParallelJobs` is deprecated → use `maxParallelRecommended`.

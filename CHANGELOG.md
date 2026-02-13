@@ -1,3 +1,9 @@
+## 1.0.3
+
+* Added `RuntimeInsightOverlayController` for static/global overlay control.
+* Overlay visibility, minimized state, pause and opacity can now be changed from anywhere.
+* Fixed icon contrast on white backgrounds (icons now use `onSurface` color).
+
 ## 1.0.2
 
 * Lowered minimum SDK to Dart 3.0.0 / Flutter 3.7.0 for wider compatibility.

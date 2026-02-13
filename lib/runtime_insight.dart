@@ -7,6 +7,7 @@ export 'monitoring/app_resource_monitoring_config.dart';
 export 'monitoring/app_resource_snapshot.dart';
 export 'recommended_parallelism.dart';
 export 'widgets/runtime_insight_overlay.dart';
+export 'widgets/runtime_insight_overlay_controller.dart';
 export 'widgets/runtime_insight_overlay_strings.dart';
 
 import 'classifier/device_static_classifier.dart';

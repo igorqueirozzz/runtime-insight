@@ -88,6 +88,38 @@ Stack(
 )
 ```
 
+### Controller (acesso estático)
+
+Controle o overlay de qualquer lugar do app — sem precisar de referência ao widget:
+
+```dart
+// Esconder / mostrar
+RuntimeInsightOverlayController.instance.hide();
+RuntimeInsightOverlayController.instance.show();
+
+// Minimizar / expandir
+RuntimeInsightOverlayController.instance.minimize();
+RuntimeInsightOverlayController.instance.expand();
+
+// Pausar / resumir fluxo de dados
+RuntimeInsightOverlayController.instance.pause();
+RuntimeInsightOverlayController.instance.resume();
+
+// Alterar opacidade
+RuntimeInsightOverlayController.instance.opacity = 0.6;
+```
+
+Você também pode passar um controller dedicado a um overlay específico:
+
+```dart
+final meuController = RuntimeInsightOverlayController(minimized: true);
+
+RuntimeInsightOverlay(
+  controller: meuController,
+  persistenceKey: 'meu_overlay',
+)
+```
+
 ### Migração do 0.x
 
 - `maxParallelJobs` está depreciado → use `maxParallelRecommended`.

@@ -14,6 +14,15 @@ import '../runtime_insight.dart';
 ///
 /// If no [stream] is provided, the widget automatically calls
 /// [RuntimeInsight.startMonitoring] and manages its lifecycle.
+///
+/// Use [controller] (or the static [RuntimeInsightOverlayController.instance])
+/// to change visibility, minimized state, pause, and opacity from anywhere:
+///
+/// ```dart
+/// RuntimeInsightOverlayController.instance.hide();
+/// RuntimeInsightOverlayController.instance.minimize();
+/// RuntimeInsightOverlayController.instance.opacity = 0.6;
+/// ```
 class RuntimeInsightOverlay extends StatefulWidget {
   /// An external monitoring stream. If `null`, the overlay creates its own.
   final Stream<AppResourceSnapshot>? stream;
@@ -72,6 +81,11 @@ class RuntimeInsightOverlay extends StatefulWidget {
   /// Whether the overlay starts in minimized mode.
   final bool initiallyMinimized;
 
+  /// Optional controller for programmatic state changes.
+  ///
+  /// If `null`, the global [RuntimeInsightOverlayController.instance] is used.
+  final RuntimeInsightOverlayController? controller;
+
   const RuntimeInsightOverlay({
     super.key,
     this.stream,
@@ -93,6 +107,7 @@ class RuntimeInsightOverlay extends StatefulWidget {
     this.showMinimizeButton = true,
     this.minimizedSize = 56,
     this.initiallyMinimized = false,
+    this.controller,
   });
 
   @override
@@ -104,16 +119,21 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
   Stream<AppResourceSnapshot>? _stream;
   StreamSubscription<AppResourceSnapshot>? _subscription;
   bool _ownsMonitoring = false;
-  bool _paused = false;
-  bool _minimized = false;
   Offset _dragOffset = Offset.zero;
-  double _opacity = 0.95;
   Timer? _persistTimer;
+
+  RuntimeInsightOverlayController get _ctrl =>
+      widget.controller ?? RuntimeInsightOverlayController.instance;
 
   @override
   void initState() {
     super.initState();
-    _minimized = widget.initiallyMinimized;
+    // Sync initial widget values into the controller (only when they differ
+    // from the defaults so that pre-configured controllers are respected).
+    if (widget.initiallyMinimized) {
+      _ctrl.minimized = true;
+    }
+    _ctrl.addListener(_onControllerChanged);
     _restorePrefs();
     _start();
   }
@@ -121,10 +141,34 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
   @override
   void didUpdateWidget(RuntimeInsightOverlay oldWidget) {
     super.didUpdateWidget(oldWidget);
+
+    // Switch controller listeners when the controller reference changes.
+    final oldCtrl =
+        oldWidget.controller ?? RuntimeInsightOverlayController.instance;
+    if (oldCtrl != _ctrl) {
+      oldCtrl.removeListener(_onControllerChanged);
+      _ctrl.addListener(_onControllerChanged);
+    }
+
     if (oldWidget.stream != widget.stream ||
         oldWidget.config != widget.config) {
       _restart();
     }
+  }
+
+  /// Called whenever the [RuntimeInsightOverlayController] notifies.
+  void _onControllerChanged() {
+    if (!mounted) return;
+
+    // Sync pause / resume with monitoring engine.
+    if (_ctrl.paused && !_isPausedInternally) {
+      _pauseInternal();
+    } else if (!_ctrl.paused && _isPausedInternally) {
+      _resumeInternal();
+    }
+
+    setState(() {}); // Rebuild with new controller values.
+    _schedulePersist();
   }
 
   Future<void> _restorePrefs() async {
@@ -141,10 +185,10 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
         _dragOffset = Offset(dx, dy);
       }
       if (opacity != null) {
-        _opacity = opacity.clamp(0.4, 1.0);
+        _ctrl.opacity = opacity.clamp(0.4, 1.0);
       }
       if (minimized != null) {
-        _minimized = minimized;
+        _ctrl.minimized = minimized;
       }
     });
   }
@@ -160,17 +204,15 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
         await prefs.setDouble('${key}_dy', _dragOffset.dy);
       }
       if (widget.persistOpacity) {
-        await prefs.setDouble('${key}_opacity', _opacity);
+        await prefs.setDouble('${key}_opacity', _ctrl.opacity);
       }
-      await prefs.setBool('${key}_minimized', _minimized);
+      await prefs.setBool('${key}_minimized', _ctrl.minimized);
     });
   }
 
   void _toggleMinimized() {
-    setState(() {
-      _minimized = !_minimized;
-    });
-    _schedulePersist();
+    _ctrl.toggleMinimized();
+    // The listener triggers setState + persist.
   }
 
   Future<void> _start() async {
@@ -186,7 +228,7 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
 
   void _subscribe() {
     _subscription = _stream?.listen((snapshot) {
-      if (_paused) return;
+      if (_ctrl.paused) return;
       setState(() {
         _history.add(snapshot);
         if (_history.length > widget.maxPoints) {
@@ -207,6 +249,7 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
 
   @override
   void dispose() {
+    _ctrl.removeListener(_onControllerChanged);
     _persistTimer?.cancel();
     _subscription?.cancel();
     if (_ownsMonitoring) {
@@ -215,46 +258,48 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
     super.dispose();
   }
 
+  // ---------------------------------------------------------------------------
+  // Pause helpers — keep engine in sync without going through the controller
+  // listener to avoid recursion.
+  // ---------------------------------------------------------------------------
+  bool _isPausedInternally = false;
+
   Future<void> _togglePause() async {
-    if (_paused) {
-      await _resume();
-    } else {
-      await _pause();
-    }
+    _ctrl.togglePause();
+    // The listener takes care of engine sync + rebuild.
   }
 
-  Future<void> _pause() async {
-    if (_paused) return;
+  Future<void> _pauseInternal() async {
+    if (_isPausedInternally) return;
+    _isPausedInternally = true;
     if (_ownsMonitoring) {
       await RuntimeInsight.pauseMonitoring();
     } else {
       await _subscription?.cancel();
     }
-    setState(() {
-      _paused = true;
-    });
   }
 
-  Future<void> _resume() async {
-    if (!_paused) return;
+  Future<void> _resumeInternal() async {
+    if (!_isPausedInternally) return;
+    _isPausedInternally = false;
     if (_ownsMonitoring) {
       await RuntimeInsight.resumeMonitoring();
     } else {
       _subscription?.cancel();
       _subscribe();
     }
-    setState(() {
-      _paused = false;
-    });
   }
 
   @override
   Widget build(BuildContext context) {
+    // If the controller says the overlay is hidden, render nothing.
+    if (!_ctrl.visible) return const SizedBox.shrink();
+
     final strings = widget.strings ?? RuntimeInsightOverlayStrings.english();
     final snapshot = _history.isEmpty ? null : _history.last;
     final theme = Theme.of(context);
 
-    if (_minimized) {
+    if (_ctrl.minimized) {
       return _buildMinimized(context, snapshot, strings, theme);
     }
     return _buildExpanded(context, snapshot, strings, theme);
@@ -272,7 +317,7 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
 
     final bgColor =
         widget.backgroundColor ??
-        theme.colorScheme.surface.withOpacity(_opacity);
+        theme.colorScheme.surface.withOpacity(_ctrl.opacity);
 
     final bubble = GestureDetector(
       onTap: _toggleMinimized,
@@ -333,7 +378,7 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
     );
     final bgColor =
         widget.backgroundColor ??
-        theme.colorScheme.surface.withOpacity(_opacity);
+        theme.colorScheme.surface.withOpacity(_ctrl.opacity);
     final content = Material(
       elevation: 6,
       borderRadius: BorderRadius.circular(12),
@@ -431,33 +476,45 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
   }
 
   Widget _header(ThemeData theme, RuntimeInsightOverlayStrings strings) {
+    final iconColor = theme.colorScheme.onSurface;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       child: Row(
         children: [
-          const Icon(Icons.monitor, size: 18),
+          Icon(Icons.monitor, size: 18, color: iconColor),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               strings.title,
-              style: const TextStyle(fontWeight: FontWeight.w600),
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: iconColor,
+              ),
             ),
           ),
           if (widget.showPauseButton)
             IconButton(
-              icon: Icon(_paused ? Icons.play_arrow : Icons.pause, size: 18),
+              icon: Icon(
+                _ctrl.paused ? Icons.play_arrow : Icons.pause,
+                size: 18,
+                color: iconColor,
+              ),
               onPressed: _togglePause,
-              tooltip: _paused ? strings.resume : strings.pause,
+              tooltip: _ctrl.paused ? strings.resume : strings.pause,
             ),
           if (widget.showMinimizeButton)
             IconButton(
-              icon: const Icon(Icons.remove_circle_outline, size: 18),
+              icon: Icon(
+                Icons.remove_circle_outline,
+                size: 18,
+                color: iconColor,
+              ),
               onPressed: _toggleMinimized,
               tooltip: strings.minimize,
             ),
           if (widget.showCloseButton)
             IconButton(
-              icon: const Icon(Icons.close, size: 18),
+              icon: Icon(Icons.close, size: 18, color: iconColor),
               onPressed: widget.onClose,
               tooltip: strings.close,
             ),
@@ -467,11 +524,12 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
   }
 
   Widget _opacityControl() {
+    final iconColor = Theme.of(context).colorScheme.onSurface;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Row(
         children: [
-          const Icon(Icons.opacity, size: 16),
+          Icon(Icons.opacity, size: 16, color: iconColor),
           Expanded(
             child: SliderTheme(
               data: SliderTheme.of(context).copyWith(
@@ -479,14 +537,12 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
                 thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
               ),
               child: Slider(
-                value: _opacity.clamp(0.4, 1.0),
+                value: _ctrl.opacity.clamp(0.4, 1.0),
                 min: 0.4,
                 max: 1.0,
                 onChanged: (value) {
-                  setState(() {
-                    _opacity = value;
-                  });
-                  _schedulePersist();
+                  _ctrl.opacity = value;
+                  // The listener triggers setState + persist.
                 },
               ),
             ),
