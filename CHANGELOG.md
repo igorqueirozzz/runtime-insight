@@ -1,3 +1,24 @@
+## 1.2.0
+
+* **HTTP request monitoring** — Track every HTTP request automatically with
+  interceptors for `dart:io`, `package:http` and Dio.
+* New `RuntimeInsight.enableHttpTracking()` installs global `HttpOverrides`
+  with a single call.
+* `HttpTracker` singleton provides stats (active, total, avg response time,
+  error rate), a real-time `onChange` stream, and log management (export JSON,
+  clear, NDJSON file persistence).
+* `RuntimeInsightHttpClient` wraps `package:http` clients.
+* `RuntimeInsightDioInterceptor` plugs into any Dio instance.
+* New **HTTP tab** in the overlay shows stats chips and a live scrollable list
+  of requests with method badge, URL and status indicator.
+* `AppMetric.http` and `AppResourceMonitoringConfig.http` to opt in.
+* Overlay now hides tabs for metrics that are not being monitored.
+* Added `OverlayDisplayStat` enum — developers choose which chips to display
+  (current, average, min, max, secondary).
+* Icons added next to metric tab titles (CPU, RAM, Disk, Network, HTTP).
+* Added `RuntimeInsightOverlayStrings.portugueseBr()` and `.spanish()` factories.
+* Controller exposes `httpTracker` getter for external log access.
+
 ## 1.0.4
 
 * Controller now supports all overlay configuration properties (width, height,

@@ -15,7 +15,8 @@ de recursos do app.
 - Usa a classe de desempenho do Android quando disponível (Android 12+)
 - Fornece helpers para verificação de tier e paralelismo recomendado
 - Monitoramento contínuo via stream (CPU, RAM, FPS, rede, disco)
-- Widget overlay para visualização em tempo real
+- **Monitoramento de requisições HTTP** com interceptors para `dart:io`, `package:http` e Dio
+- Widget overlay para visualização em tempo real com lista de requests ao vivo
 
 ## Plataformas suportadas
 
@@ -28,7 +29,7 @@ Adicione a dependência ao seu `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  runtime_insight: ^1.0.0
+  runtime_insight: ^1.2.0
 ```
 
 ## Requisitos
@@ -156,6 +157,69 @@ RuntimeInsightOverlay(
   controller: meuController,
   persistenceKey: 'meu_overlay',
 )
+```
+
+### Monitoramento HTTP
+
+Ative o rastreamento automático de HTTP no seu `main()`:
+
+```dart
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await RuntimeInsight.enableHttpTracking(); // intercepta todo HTTP via dart:io
+  runApp(const MyApp());
+}
+```
+
+Ative a aba HTTP no overlay:
+
+```dart
+RuntimeInsightOverlay(
+  config: const AppResourceMonitoringConfig(
+    cpu: true,
+    memory: true,
+    http: true, // mostra a aba HTTP
+  ),
+)
+```
+
+#### Interceptors
+
+**`package:http`:**
+
+```dart
+import 'package:runtime_insight/runtime_insight.dart';
+import 'package:http/http.dart' as http;
+
+final client = RuntimeInsightHttpClient(http.Client());
+final response = await client.get(Uri.parse('https://example.com'));
+```
+
+**Dio:**
+
+```dart
+import 'package:runtime_insight/runtime_insight.dart';
+import 'package:dio/dio.dart';
+
+final dio = Dio();
+dio.interceptors.add(RuntimeInsightDioInterceptor());
+```
+
+#### Acessando logs
+
+```dart
+final tracker = HttpTracker.instance;
+// — ou via controller —
+final tracker = RuntimeInsightOverlayController.instance.httpTracker;
+
+print(tracker.totalCount);
+print(tracker.avgResponseTimeMs);
+
+// Exportar como JSON
+final json = tracker.exportLogsAsJson();
+
+// Limpar todos os logs
+await tracker.clearLogs();
 ```
 
 ### Migração do 0.x

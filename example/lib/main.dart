@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:isolate';
 import 'dart:math';
 
@@ -8,7 +9,9 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:runtime_insight/device/device_specs.dart';
 import 'package:runtime_insight/runtime_insight.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await RuntimeInsight.enableHttpTracking();
   runApp(const MyApp());
 }
 
@@ -27,7 +30,20 @@ class _MyAppState extends State<MyApp> {
   AppResourceSnapshot? _snapshot;
   StreamSubscription<AppResourceSnapshot>? _monitorSubscription;
   Stream<AppResourceSnapshot>? _monitorStream;
+  static const _monitorConfig = AppResourceMonitoringConfig(
+    cpu: true,
+    memory: true,
+    fps: false,
+    network: false,
+    disk: false,
+    http: true,
+    interval: Duration(seconds: 1),
+    movingAverageWindow: 5,
+  );
   bool _cpuStressRunning = false;
+  bool _httpDemoRunning = false;
+  Timer? _autoHttpTimer;
+  bool _autoHttpRunning = false;
 
   @override
   void initState() {
@@ -37,9 +53,105 @@ class _MyAppState extends State<MyApp> {
 
   @override
   void dispose() {
+    _autoHttpTimer?.cancel();
     _monitorSubscription?.cancel();
     RuntimeInsight.stopMonitoring();
     super.dispose();
+  }
+
+  Future<void> _fireHttpDemo() async {
+    if (_httpDemoRunning) return;
+    setState(() => _httpDemoRunning = true);
+    try {
+      final client = HttpClient();
+
+      // GET requests
+      await _doRequest(client, 'GET', 'https://jsonplaceholder.typicode.com/posts/1');
+      await _doRequest(client, 'GET', 'https://jsonplaceholder.typicode.com/users');
+
+      // POST
+      await _doRequest(client, 'POST', 'https://jsonplaceholder.typicode.com/posts',
+          body: '{"title":"test","body":"hello","userId":1}');
+
+      // PUT
+      await _doRequest(client, 'PUT', 'https://jsonplaceholder.typicode.com/posts/1',
+          body: '{"id":1,"title":"updated","body":"world","userId":1}');
+
+      // PATCH
+      await _doRequest(client, 'PATCH', 'https://jsonplaceholder.typicode.com/posts/1',
+          body: '{"title":"patched"}');
+
+      // DELETE
+      await _doRequest(client, 'DELETE', 'https://jsonplaceholder.typicode.com/posts/1');
+
+      // 404 error
+      await _doRequest(client, 'GET', 'https://httpstat.us/404');
+
+      // 500 error
+      await _doRequest(client, 'GET', 'https://httpstat.us/500');
+
+      client.close();
+    } finally {
+      if (mounted) setState(() => _httpDemoRunning = false);
+    }
+  }
+
+  Future<void> _doRequest(HttpClient client, String method, String url,
+      {String? body}) async {
+    try {
+      final uri = Uri.parse(url);
+      final HttpClientRequest request;
+      switch (method) {
+        case 'POST':
+          request = await client.postUrl(uri);
+          break;
+        case 'PUT':
+          request = await client.putUrl(uri);
+          break;
+        case 'PATCH':
+          request = await client.patchUrl(uri);
+          break;
+        case 'DELETE':
+          request = await client.deleteUrl(uri);
+          break;
+        default:
+          request = await client.getUrl(uri);
+      }
+      request.headers.set('Content-Type', 'application/json');
+      if (body != null) request.write(body);
+      final response = await request.close();
+      await response.drain<void>();
+    } catch (_) {}
+  }
+
+  void _toggleAutoHttp() {
+    if (_autoHttpRunning) {
+      _autoHttpTimer?.cancel();
+      _autoHttpTimer = null;
+      setState(() => _autoHttpRunning = false);
+    } else {
+      setState(() => _autoHttpRunning = true);
+      _autoHttpTick();
+      _autoHttpTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+        _autoHttpTick();
+      });
+    }
+  }
+
+  Future<void> _autoHttpTick() async {
+    final client = HttpClient();
+    final endpoints = [
+      'https://jsonplaceholder.typicode.com/posts/${Random().nextInt(100) + 1}',
+      'https://jsonplaceholder.typicode.com/comments/${Random().nextInt(500) + 1}',
+      'https://jsonplaceholder.typicode.com/todos/${Random().nextInt(200) + 1}',
+    ];
+    final url = endpoints[Random().nextInt(endpoints.length)];
+    try {
+      final request = await client.getUrl(Uri.parse(url));
+      final response = await request.close();
+      await response.drain<void>();
+    } catch (_) {}
+    client.close();
   }
 
   Future<void> _startCpuStress() async {
@@ -76,8 +188,7 @@ class _MyAppState extends State<MyApp> {
         AppMetric.cpu,
         AppMetric.memory,
         AppMetric.fps,
-        AppMetric.network,
-        AppMetric.disk,
+  
       ],
     );
 
@@ -95,17 +206,7 @@ class _MyAppState extends State<MyApp> {
     });
 
     _monitorSubscription?.cancel();
-    _monitorStream = RuntimeInsight.startMonitoring(
-      config: const AppResourceMonitoringConfig(
-        cpu: true,
-        memory: true,
-        fps: true,
-        network: true,
-        disk: true,
-        interval: Duration(seconds: 1),
-        movingAverageWindow: 5,
-      ),
-    );
+    _monitorStream = RuntimeInsight.startMonitoring(config: _monitorConfig);
     _monitorSubscription = _monitorStream!.listen((snapshot) {
       if (!mounted) return;
       setState(() {
@@ -276,6 +377,58 @@ class _MyAppState extends State<MyApp> {
                                     child: Text(l10n.cpuStressButton),
                                   ),
                                 ),
+                                ListTile(
+                                  title: const Text('HTTP Demo'),
+                                  subtitle: Text(
+                                    _httpDemoRunning
+                                        ? 'Firing 8 requests (GET, POST, PUT, PATCH, DELETE, 404, 500)...'
+                                        : 'Fire 8 varied HTTP requests',
+                                  ),
+                                  trailing: ElevatedButton.icon(
+                                    onPressed: _httpDemoRunning
+                                        ? null
+                                        : _fireHttpDemo,
+                                    icon: const Icon(Icons.send, size: 16),
+                                    label: const Text('Fire'),
+                                  ),
+                                ),
+                                ListTile(
+                                  title: const Text('Auto HTTP'),
+                                  subtitle: Text(
+                                    _autoHttpRunning
+                                        ? 'Sending a random GET every 3s...'
+                                        : 'Periodically send random requests',
+                                  ),
+                                  trailing: ElevatedButton.icon(
+                                    onPressed: _toggleAutoHttp,
+                                    icon: Icon(
+                                      _autoHttpRunning ? Icons.stop : Icons.play_arrow,
+                                      size: 16,
+                                    ),
+                                    label: Text(_autoHttpRunning ? 'Stop' : 'Start'),
+                                    style: _autoHttpRunning
+                                        ? ElevatedButton.styleFrom(
+                                            backgroundColor: Colors.red.shade100,
+                                            foregroundColor: Colors.red.shade800,
+                                          )
+                                        : null,
+                                  ),
+                                ),
+                                ListTile(
+                                  title: const Text('HTTP Logs'),
+                                  subtitle: Text(
+                                    '${HttpTracker.instance.totalCount} total, '
+                                    '${HttpTracker.instance.activeCount} active',
+                                  ),
+                                  trailing: TextButton.icon(
+                                    onPressed: () async {
+                                      await HttpTracker.instance.clearLogs();
+                                      if (mounted) setState(() {});
+                                    },
+                                    icon: const Icon(Icons.delete_outline, size: 16),
+                                    label: const Text('Clear'),
+                                  ),
+                                ),
                                 _infoTile(
                                   l10n.cpuPercent,
                                   cpuValue?.toStringAsFixed(1) ?? 'n/a',
@@ -358,6 +511,7 @@ class _MyAppState extends State<MyApp> {
                         alignment: Alignment.topRight,
                         child: RuntimeInsightOverlay(
                           stream: _monitorStream,
+                          config: _monitorConfig,
                           persistenceKey: 'runtime_insight_overlay',
                           strings: RuntimeInsightOverlayStrings(
                             title: l10n.overlayTitle,
@@ -371,6 +525,8 @@ class _MyAppState extends State<MyApp> {
                             networkTitle: l10n.networkRxRate,
                             labelCurrent: l10n.labelCurrent,
                             labelAverage: l10n.labelAverage,
+                            labelMin: l10n.labelMin,
+                            labelMax: l10n.labelMax,
                             labelSecondary: l10n.labelSecondary,
                             legendRead: l10n.legendRead,
                             legendWrite: l10n.legendWrite,
@@ -381,8 +537,18 @@ class _MyAppState extends State<MyApp> {
                             close: l10n.close,
                             minimize: l10n.minimize,
                             expand: l10n.expand,
+                            tabHttp: l10n.tabHttp,
+                            httpTitle: l10n.httpTitle,
+                            httpActive: l10n.httpActive,
+                            httpTotal: l10n.httpTotal,
+                            httpAvgTime: l10n.httpAvgTime,
+                            httpErrors: l10n.httpErrors,
+                            httpPending: l10n.httpPending,
+                            httpCompleted: l10n.httpCompleted,
+                            httpFailed: l10n.httpFailed,
                           ),
                           onClose: () {},
+                          displayStats: {OverlayDisplayStat.current, OverlayDisplayStat.average, OverlayDisplayStat.min, OverlayDisplayStat.max, OverlayDisplayStat.secondary},
                         ),
                       ),
                     ],

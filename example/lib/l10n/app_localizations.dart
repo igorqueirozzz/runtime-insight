@@ -326,6 +326,18 @@ abstract class AppLocalizations {
   /// **'Avg'**
   String get labelAverage;
 
+  /// No description provided for @labelMin.
+  ///
+  /// In en, this message translates to:
+  /// **'Min'**
+  String get labelMin;
+
+  /// No description provided for @labelMax.
+  ///
+  /// In en, this message translates to:
+  /// **'Max'**
+  String get labelMax;
+
   /// No description provided for @labelSecondary.
   ///
   /// In en, this message translates to:
@@ -385,6 +397,60 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Expand'**
   String get expand;
+
+  /// No description provided for @tabHttp.
+  ///
+  /// In en, this message translates to:
+  /// **'HTTP'**
+  String get tabHttp;
+
+  /// No description provided for @httpTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'HTTP Requests'**
+  String get httpTitle;
+
+  /// No description provided for @httpActive.
+  ///
+  /// In en, this message translates to:
+  /// **'Active'**
+  String get httpActive;
+
+  /// No description provided for @httpTotal.
+  ///
+  /// In en, this message translates to:
+  /// **'Total'**
+  String get httpTotal;
+
+  /// No description provided for @httpAvgTime.
+  ///
+  /// In en, this message translates to:
+  /// **'Avg Time'**
+  String get httpAvgTime;
+
+  /// No description provided for @httpErrors.
+  ///
+  /// In en, this message translates to:
+  /// **'Errors'**
+  String get httpErrors;
+
+  /// No description provided for @httpPending.
+  ///
+  /// In en, this message translates to:
+  /// **'Pending'**
+  String get httpPending;
+
+  /// No description provided for @httpCompleted.
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get httpCompleted;
+
+  /// No description provided for @httpFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed'**
+  String get httpFailed;
 }
 
 class _AppLocalizationsDelegate

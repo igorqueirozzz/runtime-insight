@@ -38,6 +38,8 @@
   "tabNetwork": "Rede",
   "labelCurrent": "Atual",
   "labelAverage": "Médio",
+  "labelMin": "Mín",
+  "labelMax": "Máx",
   "labelSecondary": "Sec",
   "legendRead": "Leitura",
   "legendWrite": "Escrita",
@@ -47,5 +49,14 @@
   "resume": "Retomar",
   "close": "Fechar",
   "minimize": "Minimizar",
-  "expand": "Expandir"
+  "expand": "Expandir",
+  "tabHttp": "HTTP",
+  "httpTitle": "Requisições HTTP",
+  "httpActive": "Ativas",
+  "httpTotal": "Total",
+  "httpAvgTime": "Tempo Médio",
+  "httpErrors": "Erros",
+  "httpPending": "Pendente",
+  "httpCompleted": "Concluída",
+  "httpFailed": "Falhou"
 }

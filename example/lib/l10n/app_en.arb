@@ -38,6 +38,8 @@
   "tabNetwork": "Network",
   "labelCurrent": "Current",
   "labelAverage": "Avg",
+  "labelMin": "Min",
+  "labelMax": "Max",
   "labelSecondary": "Alt",
   "legendRead": "Read",
   "legendWrite": "Write",
@@ -47,5 +49,14 @@
   "resume": "Resume",
   "close": "Close",
   "minimize": "Minimize",
-  "expand": "Expand"
+  "expand": "Expand",
+  "tabHttp": "HTTP",
+  "httpTitle": "HTTP Requests",
+  "httpActive": "Active",
+  "httpTotal": "Total",
+  "httpAvgTime": "Avg Time",
+  "httpErrors": "Errors",
+  "httpPending": "Pending",
+  "httpCompleted": "Done",
+  "httpFailed": "Failed"
 }

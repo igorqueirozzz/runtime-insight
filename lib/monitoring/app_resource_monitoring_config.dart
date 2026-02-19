@@ -14,6 +14,9 @@ enum AppMetric {
 
   /// Disk read/write bytes.
   disk,
+
+  /// HTTP request tracking.
+  http,
 }
 
 /// Configuration for [RuntimeInsight.startMonitoring].
@@ -36,6 +39,9 @@ class AppResourceMonitoringConfig {
   /// Whether to collect disk bytes.
   final bool disk;
 
+  /// Whether to track HTTP requests.
+  final bool http;
+
   /// How often a snapshot is emitted.
   final Duration interval;
 
@@ -48,6 +54,7 @@ class AppResourceMonitoringConfig {
     this.fps = true,
     this.network = true,
     this.disk = true,
+    this.http = false,
     this.interval = const Duration(seconds: 1),
     this.movingAverageWindow = 5,
   });
@@ -58,6 +65,7 @@ class AppResourceMonitoringConfig {
     bool? fps,
     bool? network,
     bool? disk,
+    bool? http,
     Duration? interval,
     int? movingAverageWindow,
   }) {
@@ -67,6 +75,7 @@ class AppResourceMonitoringConfig {
       fps: fps ?? this.fps,
       network: network ?? this.network,
       disk: disk ?? this.disk,
+      http: http ?? this.http,
       interval: interval ?? this.interval,
       movingAverageWindow: movingAverageWindow ?? this.movingAverageWindow,
     );
@@ -79,6 +88,7 @@ class AppResourceMonitoringConfig {
       'fps': fps,
       'network': network,
       'disk': disk,
+      'http': http,
       'intervalMs': interval.inMilliseconds,
     };
   }
@@ -91,6 +101,7 @@ class AppResourceMonitoringConfig {
         other.fps == fps &&
         other.network == network &&
         other.disk == disk &&
+        other.http == http &&
         other.interval == interval &&
         other.movingAverageWindow == movingAverageWindow;
   }
@@ -102,6 +113,7 @@ class AppResourceMonitoringConfig {
     fps,
     network,
     disk,
+    http,
     interval,
     movingAverageWindow,
   );

@@ -123,6 +123,12 @@ class AppLocalizationsPt extends AppLocalizations {
   String get labelAverage => 'Médio';
 
   @override
+  String get labelMin => 'Mín';
+
+  @override
+  String get labelMax => 'Máx';
+
+  @override
   String get labelSecondary => 'Sec';
 
   @override
@@ -151,4 +157,31 @@ class AppLocalizationsPt extends AppLocalizations {
 
   @override
   String get expand => 'Expandir';
+
+  @override
+  String get tabHttp => 'HTTP';
+
+  @override
+  String get httpTitle => 'Requisições HTTP';
+
+  @override
+  String get httpActive => 'Ativas';
+
+  @override
+  String get httpTotal => 'Total';
+
+  @override
+  String get httpAvgTime => 'Tempo Médio';
+
+  @override
+  String get httpErrors => 'Erros';
+
+  @override
+  String get httpPending => 'Pendente';
+
+  @override
+  String get httpCompleted => 'Concluída';
+
+  @override
+  String get httpFailed => 'Falhou';
 }

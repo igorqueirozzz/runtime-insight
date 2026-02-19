@@ -3,6 +3,11 @@ import 'dart:async';
 
 import 'package:flutter/scheduler.dart';
 
+export 'http/http_request_log.dart';
+export 'http/http_tracker.dart';
+export 'http/runtime_insight_dio_interceptor.dart';
+export 'http/runtime_insight_http_client.dart';
+export 'http/runtime_insight_http_overrides.dart';
 export 'monitoring/app_resource_monitoring_config.dart';
 export 'monitoring/app_resource_snapshot.dart';
 export 'recommended_parallelism.dart';
@@ -13,6 +18,8 @@ export 'widgets/runtime_insight_overlay_strings.dart';
 import 'classifier/device_static_classifier.dart';
 import 'classifier/device_tier.dart';
 import 'device/device_specs.dart';
+import 'http/http_tracker.dart';
+import 'http/runtime_insight_http_overrides.dart';
 import 'monitoring/app_resource_monitoring_config.dart';
 import 'monitoring/app_resource_snapshot.dart';
 import 'recommended_parallelism.dart';
@@ -297,6 +304,32 @@ class RuntimeInsight {
     _resetWindow();
   }
 
+  /// Enables automatic HTTP request tracking.
+  ///
+  /// Installs [RuntimeInsightHttpOverrides] globally (via [HttpOverrides]) so
+  /// that all HTTP traffic through `dart:io`'s [HttpClient] is captured
+  /// automatically. This includes traffic from `package:http` and Dio.
+  ///
+  /// Call this early in `main()`:
+  ///
+  /// ```dart
+  /// void main() {
+  ///   RuntimeInsight.enableHttpTracking();
+  ///   runApp(const MyApp());
+  /// }
+  /// ```
+  ///
+  /// Set [maxLogs] to control how many entries are kept in memory and on disk
+  /// (default 500).
+  static Future<void> enableHttpTracking({int maxLogs = 500}) async {
+    final tracker = HttpTracker.instance;
+    tracker.maxLogs = maxLogs;
+    tracker.enabled = true;
+    await tracker.init();
+    HttpOverrides.global =
+        RuntimeInsightHttpOverrides(HttpOverrides.current);
+  }
+
   static void _ensureInit() {
     if (_specs == null) {
       throw StateError(
@@ -470,6 +503,8 @@ class RuntimeInsight {
         await _updateConfigWith(network: enabled);
       case AppMetric.disk:
         await _updateConfigWith(disk: enabled);
+      case AppMetric.http:
+        await _updateConfigWith(http: enabled);
     }
   }
 
@@ -479,6 +514,7 @@ class RuntimeInsight {
     bool? fps,
     bool? network,
     bool? disk,
+    bool? http,
     Duration? interval,
     int? movingAverageWindow,
   }) async {
@@ -489,6 +525,7 @@ class RuntimeInsight {
       fps: fps,
       network: network,
       disk: disk,
+      http: http,
       interval: interval,
       movingAverageWindow: movingAverageWindow,
     );
@@ -513,6 +550,7 @@ class RuntimeInsight {
     if (config.fps) metrics.add(AppMetric.fps);
     if (config.network) metrics.add(AppMetric.network);
     if (config.disk) metrics.add(AppMetric.disk);
+    if (config.http) metrics.add(AppMetric.http);
     return metrics;
   }
 
@@ -527,6 +565,7 @@ class RuntimeInsight {
       fps: set.contains(AppMetric.fps),
       network: set.contains(AppMetric.network),
       disk: set.contains(AppMetric.disk),
+      http: set.contains(AppMetric.http),
     );
   }
 
@@ -548,7 +587,8 @@ class RuntimeInsight {
         config.memory ||
         config.fps ||
         config.network ||
-        config.disk;
+        config.disk ||
+        config.http;
     if (!hasAnyMetric) {
       throw ArgumentError('At least one metric must be enabled.');
     }

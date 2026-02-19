@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../http/http_tracker.dart';
 import '../monitoring/app_resource_monitoring_config.dart';
 import '../monitoring/app_resource_snapshot.dart';
+import 'runtime_insight_overlay.dart' show OverlayDisplayStat;
 import 'runtime_insight_overlay_strings.dart';
 
 /// A controller for [RuntimeInsightOverlay] that allows changing its state
@@ -75,6 +77,7 @@ class RuntimeInsightOverlayController extends ChangeNotifier {
     RuntimeInsightOverlayStrings? strings,
     VoidCallback? onClose,
     AppResourceMonitoringConfig? monitoringConfig,
+    Set<OverlayDisplayStat>? displayStats,
   })  : _visible = visible,
         _minimized = minimized,
         _paused = paused,
@@ -92,7 +95,8 @@ class RuntimeInsightOverlayController extends ChangeNotifier {
         _allowDrag = allowDrag,
         _strings = strings,
         _onClose = onClose,
-        _monitoringConfig = monitoringConfig;
+        _monitoringConfig = monitoringConfig,
+        _displayStats = displayStats;
 
   // ===========================================================================
   //  STATE
@@ -335,6 +339,21 @@ class RuntimeInsightOverlayController extends ChangeNotifier {
   }
 
   // ---------------------------------------------------------------------------
+  // Display stats
+  // ---------------------------------------------------------------------------
+
+  Set<OverlayDisplayStat>? _displayStats;
+
+  /// Which statistics to show in each metric tab. `null` keeps the widget default.
+  Set<OverlayDisplayStat>? get displayStats => _displayStats;
+
+  set displayStats(Set<OverlayDisplayStat>? value) {
+    if (_displayStats == value) return;
+    _displayStats = value;
+    notifyListeners();
+  }
+
+  // ---------------------------------------------------------------------------
   // Callbacks
   // ---------------------------------------------------------------------------
 
@@ -411,6 +430,14 @@ class RuntimeInsightOverlayController extends ChangeNotifier {
     _history.clear();
     _latestSnapshot = null;
   }
+
+  // ===========================================================================
+  //  HTTP TRACKER ACCESS
+  // ===========================================================================
+
+  /// Provides access to the [HttpTracker] singleton for HTTP request
+  /// monitoring, log retrieval and clearing.
+  HttpTracker get httpTracker => HttpTracker.instance;
 
   // ---------------------------------------------------------------------------
   // Dispose

@@ -6,6 +6,38 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../runtime_insight.dart';
 
+/// Which statistics to display in each metric tab's chip row.
+///
+/// Defaults to [current] and [average]. Developers can pick any combination:
+///
+/// ```dart
+/// RuntimeInsightOverlay(
+///   displayStats: {OverlayDisplayStat.current, OverlayDisplayStat.min, OverlayDisplayStat.max},
+/// )
+/// ```
+enum OverlayDisplayStat {
+  /// The most recent value.
+  current,
+
+  /// Moving average over the configured window.
+  average,
+
+  /// Minimum value in the current history buffer.
+  min,
+
+  /// Maximum value in the current history buffer.
+  max,
+
+  /// Secondary value (e.g. write rate for disk, TX for network).
+  secondary,
+}
+
+/// The default set of display stats shown in the overlay.
+const Set<OverlayDisplayStat> kDefaultDisplayStats = {
+  OverlayDisplayStat.current,
+  OverlayDisplayStat.average,
+};
+
 /// A draggable overlay widget that displays real-time app resource charts.
 ///
 /// Place it in a [Stack] to visualise CPU, RAM, disk and network metrics.
@@ -86,6 +118,10 @@ class RuntimeInsightOverlay extends StatefulWidget {
   /// Whether the overlay starts in minimized mode.
   final bool initiallyMinimized;
 
+  /// Which statistics to show in each metric tab (current, average, min, max,
+  /// secondary). Defaults to [kDefaultDisplayStats] (current + average).
+  final Set<OverlayDisplayStat> displayStats;
+
   /// Optional controller for programmatic state and configuration changes.
   ///
   /// If `null`, the global [RuntimeInsightOverlayController.instance] is used.
@@ -112,6 +148,7 @@ class RuntimeInsightOverlay extends StatefulWidget {
     this.showMinimizeButton = true,
     this.minimizedSize = 56,
     this.initiallyMinimized = false,
+    this.displayStats = kDefaultDisplayStats,
     this.controller,
   });
 
@@ -122,6 +159,7 @@ class RuntimeInsightOverlay extends StatefulWidget {
 class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
   Stream<AppResourceSnapshot>? _stream;
   StreamSubscription<AppResourceSnapshot>? _subscription;
+  StreamSubscription<void>? _httpSubscription;
   bool _ownsMonitoring = false;
   Offset _dragOffset = Offset.zero;
   Timer? _persistTimer;
@@ -151,6 +189,8 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
   VoidCallback? get _onClose => _ctrl.onClose ?? widget.onClose;
   AppResourceMonitoringConfig? get _monitoringConfig =>
       _ctrl.monitoringConfig ?? widget.config;
+  Set<OverlayDisplayStat> get _displayStats =>
+      _ctrl.displayStats ?? widget.displayStats;
 
   // ---------------------------------------------------------------------------
   // Lifecycle
@@ -273,6 +313,12 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
       _ctrl.addSnapshot(snapshot, maxPoints: _maxPoints);
       setState(() {});
     });
+    _httpSubscription?.cancel();
+    if (HttpTracker.instance.enabled) {
+      _httpSubscription = HttpTracker.instance.onChange.listen((_) {
+        if (mounted) setState(() {});
+      });
+    }
   }
 
   Future<void> _restart() async {
@@ -289,6 +335,7 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
     _ctrl.removeListener(_onControllerChanged);
     _persistTimer?.cancel();
     _subscription?.cancel();
+    _httpSubscription?.cancel();
     if (_ownsMonitoring) {
       RuntimeInsight.stopMonitoring();
     }
@@ -414,78 +461,112 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
     List<AppResourceSnapshot> history,
     ThemeData theme,
   ) {
-    final cpuValue = _formatDouble(
-      snapshot?.cpuPercent ?? snapshot?.cpuPercentAvg,
-    );
     final bgColor =
         _backgroundColor ?? theme.colorScheme.surface.withOpacity(_ctrl.opacity);
     final strings = _strings;
+    final config = _monitoringConfig ?? const AppResourceMonitoringConfig();
+
+    // Build only tabs for monitored metrics.
+    final tabs = <Tab>[];
+    final tabViews = <Widget>[];
+
+    if (config.cpu) {
+      tabs.add(Tab(text: strings.tabCpu));
+      tabViews.add(_metricTab(
+        title: strings.cpuTitle,
+        icon: Icons.memory,
+        history: history,
+        primarySelector: (s) => s.cpuPercent,
+        avgSelector: (s) => s.cpuPercentAvg,
+        format: _formatDouble,
+        series: [_series(history, (s) => s.cpuPercent)],
+        colors: [Colors.orange],
+      ));
+    }
+
+    if (config.memory) {
+      tabs.add(Tab(text: strings.tabRam));
+      tabViews.add(_metricTab(
+        title: strings.ramTitle,
+        icon: Icons.storage,
+        history: history,
+        primarySelector: (s) => s.memoryMb,
+        avgSelector: (s) => s.memoryMbAvg,
+        format: _formatDouble,
+        series: [_series(history, (s) => s.memoryMb)],
+        colors: [Colors.blue],
+      ));
+    }
+
+    if (config.disk) {
+      tabs.add(Tab(text: strings.tabDisk));
+      tabViews.add(_metricTab(
+        title: strings.diskTitle,
+        icon: Icons.disc_full_outlined,
+        history: history,
+        primarySelector: (s) => s.diskReadBytesPerSec,
+        avgSelector: null,
+        secondarySelector: (s) => s.diskWriteBytesPerSec,
+        format: _formatRate,
+        series: [
+          _series(history, (s) => s.diskReadBytesPerSec),
+          _series(history, (s) => s.diskWriteBytesPerSec),
+        ],
+        colors: [Colors.green, Colors.redAccent],
+        legend: [strings.legendRead, strings.legendWrite],
+      ));
+    }
+
+    if (config.network) {
+      tabs.add(Tab(text: strings.tabNetwork));
+      tabViews.add(_metricTab(
+        title: strings.networkTitle,
+        icon: Icons.wifi,
+        history: history,
+        primarySelector: (s) => s.networkRxBytesPerSec,
+        avgSelector: null,
+        secondarySelector: (s) => s.networkTxBytesPerSec,
+        format: _formatRate,
+        series: [
+          _series(history, (s) => s.networkRxBytesPerSec),
+          _series(history, (s) => s.networkTxBytesPerSec),
+        ],
+        colors: [Colors.teal, Colors.purple],
+        legend: [strings.legendRx, strings.legendTx],
+      ));
+    }
+
+    if (config.http) {
+      tabs.add(Tab(text: strings.tabHttp));
+      tabViews.add(_httpTab(strings));
+    }
+
+    final hasTabs = tabs.isNotEmpty;
 
     final content = Material(
       elevation: 6,
       borderRadius: BorderRadius.circular(12),
       color: bgColor,
-      child: DefaultTabController(
-        length: 4,
-        child: Column(
-          children: [
-            _header(theme, strings),
-            if (_showOpacitySlider) _opacityControl(),
-            const Divider(height: 1),
-            TabBar(
-              tabs: [
-                Tab(text: strings.tabCpu),
-                Tab(text: strings.tabRam),
-                Tab(text: strings.tabDisk),
-                Tab(text: strings.tabNetwork),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Expanded(
-              child: TabBarView(
+      child: hasTabs
+          ? DefaultTabController(
+              length: tabs.length,
+              child: Column(
                 children: [
-                  _metricTab(
-                    title: strings.cpuTitle,
-                    value: cpuValue,
-                    avgValue: _formatDouble(snapshot?.cpuPercentAvg),
-                    series: [_series(history, (s) => s.cpuPercent)],
-                    colors: [Colors.orange],
-                  ),
-                  _metricTab(
-                    title: strings.ramTitle,
-                    value: _formatDouble(snapshot?.memoryMb),
-                    avgValue: _formatDouble(snapshot?.memoryMbAvg),
-                    series: [_series(history, (s) => s.memoryMb)],
-                    colors: [Colors.blue],
-                  ),
-                  _metricTab(
-                    title: strings.diskTitle,
-                    value: _formatRate(snapshot?.diskReadBytesPerSec),
-                    secondaryValue: _formatRate(snapshot?.diskWriteBytesPerSec),
-                    series: [
-                      _series(history, (s) => s.diskReadBytesPerSec),
-                      _series(history, (s) => s.diskWriteBytesPerSec),
-                    ],
-                    colors: [Colors.green, Colors.redAccent],
-                    legend: [strings.legendRead, strings.legendWrite],
-                  ),
-                  _metricTab(
-                    title: strings.networkTitle,
-                    value: _formatRate(snapshot?.networkRxBytesPerSec),
-                    secondaryValue: _formatRate(snapshot?.networkTxBytesPerSec),
-                    series: [
-                      _series(history, (s) => s.networkRxBytesPerSec),
-                      _series(history, (s) => s.networkTxBytesPerSec),
-                    ],
-                    colors: [Colors.teal, Colors.purple],
-                    legend: [strings.legendRx, strings.legendTx],
-                  ),
+                  _header(theme, strings),
+                  if (_showOpacitySlider) _opacityControl(),
+                  const Divider(height: 1),
+                  TabBar(tabs: tabs),
+                  const SizedBox(height: 8),
+                  Expanded(child: TabBarView(children: tabViews)),
                 ],
               ),
+            )
+          : Column(
+              children: [
+                _header(theme, strings),
+                if (_showOpacitySlider) _opacityControl(),
+              ],
             ),
-          ],
-        ),
-      ),
     );
 
     final overlay = Container(
@@ -524,7 +605,7 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
   Widget _header(ThemeData theme, RuntimeInsightOverlayStrings strings) {
     final iconColor = theme.colorScheme.onSurface;
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       child: Row(
         children: [
           Icon(Icons.monitor, size: 18, color: iconColor),
@@ -599,28 +680,81 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
 
   Widget _metricTab({
     required String title,
-    required String value,
-    String? secondaryValue,
-    String? avgValue,
+    required IconData icon,
+    required List<AppResourceSnapshot> history,
+    required double? Function(AppResourceSnapshot) primarySelector,
+    double? Function(AppResourceSnapshot)? avgSelector,
+    double? Function(AppResourceSnapshot)? secondarySelector,
+    required String Function(double?) format,
     required List<List<double?>> series,
     required List<Color> colors,
     List<String>? legend,
   }) {
     final strings = _strings;
+    final stats = _displayStats;
+    final iconColor = Theme.of(context).colorScheme.onSurface;
+
+    final snapshot = history.isEmpty ? null : history.last;
+    final primaryValues =
+        history.map(primarySelector).whereType<double>().toList();
+
+    final chips = <Widget>[];
+
+    if (stats.contains(OverlayDisplayStat.current)) {
+      chips.add(_valueChip(
+        strings.labelCurrent,
+        format(snapshot == null ? null : primarySelector(snapshot)),
+      ));
+    }
+    if (stats.contains(OverlayDisplayStat.average)) {
+      final avg = (avgSelector != null && snapshot != null)
+          ? avgSelector(snapshot)
+          : null;
+      chips.add(_valueChip(strings.labelAverage, format(avg)));
+    }
+    if (stats.contains(OverlayDisplayStat.min) && primaryValues.isNotEmpty) {
+      chips.add(_valueChip(
+        strings.labelMin,
+        format(primaryValues.reduce(min)),
+      ));
+    }
+    if (stats.contains(OverlayDisplayStat.max) && primaryValues.isNotEmpty) {
+      chips.add(_valueChip(
+        strings.labelMax,
+        format(primaryValues.reduce(max)),
+      ));
+    }
+    if (stats.contains(OverlayDisplayStat.secondary) &&
+        secondarySelector != null) {
+      chips.add(_valueChip(
+        strings.labelSecondary,
+        format(snapshot == null ? null : secondarySelector(snapshot)),
+      ));
+    }
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-          const SizedBox(height: 6),
           Row(
             children: [
-              _valueChip(strings.labelCurrent, value),
-              if (avgValue != null) _valueChip(strings.labelAverage, avgValue),
-              if (secondaryValue != null)
-                _valueChip(strings.labelSecondary, secondaryValue),
+              Icon(icon, size: 16, color: iconColor),
+              const SizedBox(width: 6),
+              Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
             ],
+          ),
+          const SizedBox(height: 6),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 52),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                children: chips,
+              ),
+            ),
           ),
           const SizedBox(height: 8),
           Expanded(
@@ -631,6 +765,174 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
         ],
       ),
     );
+  }
+
+  Widget _httpTab(RuntimeInsightOverlayStrings strings) {
+    final tracker = HttpTracker.instance;
+    final iconColor = Theme.of(context).colorScheme.onSurface;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.http, size: 16, color: iconColor),
+              const SizedBox(width: 6),
+              Text(strings.httpTitle,
+                  style: const TextStyle(fontWeight: FontWeight.w600)),
+            ],
+          ),
+          const SizedBox(height: 6),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 52),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                children: [
+                  _valueChip(strings.httpActive, '${tracker.activeCount}'),
+                  _valueChip(strings.httpTotal, '${tracker.totalCount}'),
+                  _valueChip(strings.httpAvgTime,
+                      '${tracker.avgResponseTimeMs.toStringAsFixed(0)} ms'),
+                  _valueChip(strings.httpErrors,
+                      '${(tracker.errorRate * 100).toStringAsFixed(0)}%'),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Expanded(
+            child: tracker.logs.isEmpty
+                ? Center(
+                    child: Text(
+                      'No requests yet',
+                      style: TextStyle(
+                        color: iconColor.withOpacity(0.5),
+                        fontSize: 12,
+                      ),
+                    ),
+                  )
+                : ListView.builder(
+                    padding: EdgeInsets.zero,
+                    reverse: true,
+                    itemCount: tracker.logs.length,
+                    itemExtent: 36,
+                    itemBuilder: (context, index) {
+                      final log = tracker.logs[index];
+                      return _httpRequestRow(log);
+                    },
+                  ),
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+
+  Widget _httpRequestRow(HttpRequestLog log) {
+    return Row(
+      children: [
+        _httpMethodChip(log.method),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            log.url,
+            overflow: TextOverflow.ellipsis,
+            maxLines: 1,
+            style: const TextStyle(fontSize: 11),
+          ),
+        ),
+        const SizedBox(width: 6),
+        _httpStatusIndicator(log),
+      ],
+    );
+  }
+
+  Widget _httpMethodChip(String method) {
+    final color = _httpMethodColor(method);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: color.withOpacity(0.4), width: 0.5),
+      ),
+      child: Text(
+        method,
+        style: TextStyle(
+          fontSize: 9,
+          fontWeight: FontWeight.w700,
+          color: color,
+        ),
+      ),
+    );
+  }
+
+  static Color _httpMethodColor(String method) {
+    switch (method.toUpperCase()) {
+      case 'GET':
+        return Colors.green;
+      case 'POST':
+        return Colors.blue;
+      case 'PUT':
+        return Colors.orange;
+      case 'PATCH':
+        return Colors.deepOrange;
+      case 'DELETE':
+        return Colors.red;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  Widget _httpStatusIndicator(HttpRequestLog log) {
+    switch (log.status) {
+      case HttpRequestStatus.pending:
+        return const SizedBox(
+          width: 14,
+          height: 14,
+          child: CircularProgressIndicator(strokeWidth: 1.5),
+        );
+      case HttpRequestStatus.completed:
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (log.durationMs != null)
+              Padding(
+                padding: const EdgeInsets.only(right: 4),
+                child: Text(
+                  '${log.durationMs}ms',
+                  style: TextStyle(
+                    fontSize: 9,
+                    color: Colors.green.shade700,
+                  ),
+                ),
+              ),
+            Icon(Icons.check_circle, size: 14, color: Colors.green.shade600),
+          ],
+        );
+      case HttpRequestStatus.failed:
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (log.statusCode != null)
+              Padding(
+                padding: const EdgeInsets.only(right: 4),
+                child: Text(
+                  '${log.statusCode}',
+                  style: TextStyle(
+                    fontSize: 9,
+                    color: Colors.red.shade700,
+                  ),
+                ),
+              ),
+            Icon(Icons.cancel, size: 14, color: Colors.red.shade600),
+          ],
+        );
+    }
   }
 
   Widget _legendRow(List<String> labels, List<Color> colors) {
