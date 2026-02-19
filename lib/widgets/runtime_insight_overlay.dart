@@ -701,15 +701,31 @@ class _RuntimeInsightOverlayState extends State<RuntimeInsightOverlay> {
     final chips = <Widget>[];
 
     if (stats.contains(OverlayDisplayStat.current)) {
-      chips.add(_valueChip(
-        strings.labelCurrent,
-        format(snapshot == null ? null : primarySelector(snapshot)),
-      ));
+      double? currentValue;
+      if (snapshot != null) {
+        if (avgSelector != null) {
+          currentValue = primarySelector(snapshot);
+        } else {
+          // For rate-based metrics (disk, network) smooth the displayed value
+          // over the last few samples to avoid flickering.
+          final recent = primaryValues.length <= 3
+              ? primaryValues
+              : primaryValues.sublist(primaryValues.length - 3);
+          currentValue = recent.isEmpty
+              ? primarySelector(snapshot)
+              : recent.fold<double>(0, (a, b) => a + b) / recent.length;
+        }
+      }
+      chips.add(_valueChip(strings.labelCurrent, format(currentValue)));
     }
     if (stats.contains(OverlayDisplayStat.average)) {
-      final avg = (avgSelector != null && snapshot != null)
-          ? avgSelector(snapshot)
-          : null;
+      double? avg;
+      if (avgSelector != null && snapshot != null) {
+        avg = avgSelector(snapshot);
+      } else if (primaryValues.isNotEmpty) {
+        avg = primaryValues.fold<double>(0, (a, b) => a + b) /
+            primaryValues.length;
+      }
       chips.add(_valueChip(strings.labelAverage, format(avg)));
     }
     if (stats.contains(OverlayDisplayStat.min) && primaryValues.isNotEmpty) {
