@@ -1,3 +1,10 @@
+## 1.2.1
+
+* Fixed disk and network chip values flickering by smoothing with a 3-sample
+  moving average for the "Current" chip.
+* Fixed "Avg" chip showing `n/a` for disk and network — now computed from
+  the full history buffer.
+
 ## 1.2.0
 
 * **HTTP request monitoring** — Track every HTTP request automatically with
